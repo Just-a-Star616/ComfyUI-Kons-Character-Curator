@@ -1,0 +1,12 @@
+{
+  "servers": [
+    {"name": "local", "url": "http://127.0.0.1:8188"},
+    {"name": "remote", "url": "http://192.168.1.50:8188"}
+  ],
+  "presets_path": "/path/to/ComfyUI/user/default/muse_moss_sheet_presets.json",
+  "scan_roots": [
+    {"path": "/path/to/Characters", "per_character_folders": true, "label": "Characters (one folder per character)"},
+    {"path": "/path/to/ComfyUI/output", "per_character_folders": false, "label": "ComfyUI output"}
+  ],
+  "export_dir": "/path/to/lora/datasets"
+}
