@@ -42,7 +42,8 @@ def sheet_graph(server, character, outfit, p, refs, accessories=()):
     """p: job params (mode, views, seed, megapixels, prompt_list, control, describe, remove_background).
     accessories: rows joined to their part prompt; prompt lists have no part prompts, so there they follow the outfit text."""
     m = server["models"]
-    state = json.loads(character["state_json"]) if character["state_json"] else dict(DEFAULT_STATE)
+    # The Part prompts editor may save a state holding only part_prompts: the defaults fill the rest.
+    state = {**DEFAULT_STATE, **(json.loads(character["state_json"]) if character["state_json"] else {})}
     if p.get("views"):
         state["views"] = p["views"]
     if p.get("style"):
@@ -87,6 +88,10 @@ def sheet_graph(server, character, outfit, p, refs, accessories=()):
         inputs[slot] = [f"ref_{slot}", 0]
     for toggle in p.get("describe", []):
         inputs[toggle] = True
+    # Describe replaces its box. The node keeps the box text as notes (the description verbatim), so send only the trigger.
+    for toggle, box, keep in (("describe_character", "prompt", trigger), ("describe_outfit", "outfit", ""), ("describe_body", "body_details", "")):
+        if toggle in p.get("describe", []):
+            inputs[box] = keep
     if p.get("describe"):
         # llama.cpp memory is outside ComfyUI's model management: free it before the next generation needs the VRAM.
         graph["vision"] = {"class_type": "LCVisionLoader", "inputs": {**m["vision"], "keep_model_loaded": False}}

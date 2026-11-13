@@ -4,7 +4,10 @@ import {AssetDrawer, AssetGrid, useLoad} from './ui.jsx';
 import {LoraRows} from './Loras.jsx';
 
 const EMPTY_CONTROL = {locked: [], seeds: {}, edits: {}, edit_seeds: {}, prompts: {}};
-const DESCRIBE = {prompt: 'describe_character', outfit: 'describe_outfit', body_details: 'describe_body'};
+const DESCRIBE = {prompt: 'describe_character', outfit: 'describe_outfit', body_details: 'describe_body', parts: 'describe_parts'};
+// Designer part prompts: each is only used in the views where that part is visible.
+const PART_FIELDS = Object.fromEntries(['head_hair', 'face', 'upper_clothing', 'back_clothing', 'lower_body', 'hands', 'footwear'].map(k => [k, PARTS[k]]).concat([['other', 'Other (every view)']]));
+const withParts = (stateJson, fn) => { let s = {}; try { s = JSON.parse(stateJson || '{}'); } catch { /* broken state: start over */ } const parts = fn({...s.part_prompts}); for (const k of Object.keys(parts)) if (!parts[k]) delete parts[k]; return JSON.stringify({...s, part_prompts: parts}); };
 
 export default function Character({id, back}) {
   const [c, reload] = useLoad(() => api.get(`/api/characters/${id}`), [id]);
@@ -80,16 +83,30 @@ export default function Character({id, back}) {
         <section className="card">
           <div className="form">{field('name')}{field('trigger')}{field('aliases')}{field('franchise')}{field('tags')}</div>
           {field('description', 3)}{field('body_details', 2)}{field('nsfw_details', 2)}{field('notes', 2)}
+          <details>
+            <summary>Part prompts</summary>
+            <p className="muted small">Each is used only in views where that part is visible, so specifics go here and the description and outfit stay brief. Footwear comes from the outfit when it has one.</p>
+            {Object.entries(PART_FIELDS).map(([k, label]) => {
+              let v = '';
+              try { v = JSON.parse(form.state_json || '{}').part_prompts?.[k] || ''; } catch { /* shown empty */ }
+              return <label key={k}>{label}<textarea rows={2} value={v} onChange={e => set('state_json', withParts(form.state_json, p => ({...p, [k]: e.target.value})))} /></label>;
+            })}
+          </details>
           <Outfits character={c} active={outfitId} setActive={setOutfitId} reload={reload} />
         </section>
         <Generate character={c} outfitId={outfitId} assets={assets || []} onDone={() => { reloadAssets(); }}
           createOutfit={async name => { const r = await api.post('/api/outfits', {character_id: id, name}); await reload(); setOutfitId(r.id); return r.id; }}
           applyDescribed={async (d, outfitTarget) => {
             const next = {...form};
-            for (const [k, v] of Object.entries(d)) if (k !== 'outfit') next[k === 'prompt' ? 'description' : k] = v;
+            const {outfit, part_prompts: parts, ...boxes} = d;
+            for (const [k, v] of Object.entries(boxes)) next[k === 'prompt' ? 'description' : k] = v;
+            // Footwear belongs to the outfit here: sheet_graph lets the outfit's footwear override the part prompt.
+            const {footwear, ...rest} = parts || {};
+            if (parts) next.state_json = withParts(next.state_json, p => ({...p, ...(outfitTarget ? rest : parts)}));
             setForm(next);
-            if (d.outfit && outfitTarget) { await api.put(`/api/outfits/${outfitTarget}`, {text: d.outfit}); reload(); }
-            setMsg(d.outfit ? 'Outfit described and saved: review it below' : 'Described: review the text, then Save');
+            const patch = {...(outfit && {text: outfit}), ...(footwear && outfitTarget && {footwear})};
+            if (outfitTarget && Object.keys(patch).length) { await api.put(`/api/outfits/${outfitTarget}`, patch); reload(); }
+            setMsg(Object.keys(patch).length ? 'Described; outfit saved: review the text, then Save' : 'Described: review the text, then Save');
           }} />
       </div>
       <div className="row">
@@ -219,12 +236,12 @@ function Generate({character, outfitId, assets, onDone, applyDescribed, createOu
   const describeImage = p.refs.describe_image || p.refs.character_image;
   const describe = async field => {
     let outfitTarget;
-    if (field === 'outfit' && !outfitId) {
+    if ((field === 'outfit' || field === 'all') && !outfitId) {
       const name = prompt('Name for the new outfit', 'New outfit');
       if (!name) return;
       outfitTarget = await createOutfit(name);
     }
-    run(null, {params: {describe: [DESCRIBE[field]], refs: {character_image: describeImage}}, outfitId: outfitTarget});
+    run(null, {params: {describe: field === 'all' ? Object.values(DESCRIBE) : [DESCRIBE[field]], refs: {character_image: describeImage}}, outfitId: outfitTarget});
   };
   const setRef = (slot, aid) => set('refs', {...p.refs, [slot]: aid ?? undefined});
   const slot = s => (
@@ -269,6 +286,8 @@ function Generate({character, outfitId, assets, onDone, applyDescribed, createOu
         <button disabled={busyRun || !describeImage} onClick={() => describe('prompt')} title="Replace the character description">🔍 Describe character</button>
         <button disabled={busyRun || !describeImage} onClick={() => describe('body_details')} title="Replace body details">🔍 Describe body</button>
         <button disabled={busyRun || !describeImage} onClick={() => describe('outfit')} title="Fill the selected outfit (or a new one); description and body are untouched">🔍 Describe outfit</button>
+        <button disabled={busyRun || !describeImage} onClick={() => describe('parts')} title="Fill the part prompts (hair, face, upper, back, lower, hands, other; footwear goes to the selected outfit). Parts hidden in the image keep their text">🔍 Describe parts</button>
+        <button disabled={busyRun || !describeImage} onClick={() => describe('all')} title="Brief description, body and outfit, with the specifics in the part prompts">🔍 Describe all (split)</button>
       </div>
       {picking && <Picker character={character} sources={refs} title={SLOTS[picking]} initialTab={picking === 'pose_image' ? 'templates' : 'sources'} onPick={a => { setRef(picking, a.id); setPicking(null); }} onClose={() => setPicking(null)} />}
       {p.mode === 'prompt_list' ? (
