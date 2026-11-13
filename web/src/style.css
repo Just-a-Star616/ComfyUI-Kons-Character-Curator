@@ -80,3 +80,5 @@ button.danger { border-color: var(--fail); color: var(--fail); }
 .loraimages figcaption { font-size: 11px; margin-top: 4px; } .loraimages .prompt { margin: 3px 0 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: copy; }
 .loraimages .blocked { aspect-ratio: 3/4; display: grid; place-items: center; text-align: center; padding: 12px; background: #8882; border-radius: 4px; font-size: 12px; }
 .row.center { justify-content: center; }
+.wardrobe { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.wardrobe figcaption { padding: 4px 6px; font-size: 12px; }

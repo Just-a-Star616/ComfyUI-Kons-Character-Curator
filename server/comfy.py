@@ -38,16 +38,22 @@ def enabled_loras(p):
     return [r for r in p.get("loras", []) if r.get("on") and r.get("lora") and float(r.get("strength", 0))]
 
 
-def sheet_graph(server, character, outfit, p, refs):
-    """p: job params (mode, views, seed, megapixels, prompt_list, control, describe, remove_background)."""
+def sheet_graph(server, character, outfit, p, refs, accessories=()):
+    """p: job params (mode, views, seed, megapixels, prompt_list, control, describe, remove_background).
+    accessories: rows joined to their part prompt; prompt lists have no part prompts, so there they follow the outfit text."""
     m = server["models"]
     state = json.loads(character["state_json"]) if character["state_json"] else dict(DEFAULT_STATE)
     if p.get("views"):
         state["views"] = p["views"]
     if p.get("style"):
         state["style"] = p["style"]
+    parts = dict(state.get("part_prompts", {}))
     if outfit and outfit["footwear"]:
-        state["part_prompts"] = {**state.get("part_prompts", {}), "footwear": outfit["footwear"]}
+        parts["footwear"] = outfit["footwear"]
+    for a in accessories:
+        parts[a["part"]] = "; ".join(t for t in (parts.get(a["part"], ""), a["text"].strip()) if t)
+    state["part_prompts"] = parts
+    outfit_text = " ".join(t for t in [outfit["text"] if outfit else ""] + ([a["text"].strip() for a in accessories] if p.get("mode") == "prompt_list" else []) if t)
     trigger = character["trigger"].strip()
     description = character["description"].strip()
     if trigger and not description.startswith(trigger):
@@ -62,7 +68,7 @@ def sheet_graph(server, character, outfit, p, refs):
         "mode": p.get("mode", "per_view"), "seed": int(p.get("seed", 0)), "steps": int(m["steps"]), "cfg": float(m["cfg"]),
         "megapixels": float(p.get("megapixels", 1.0)), "kv_cache": m.get("kv_cache", "auto"),
         "view_control": json.dumps({**DEFAULT_CONTROL, **p.get("control", {})}),
-        "outfit": outfit["text"] if outfit else "", "body_details": character["body_details"], "nsfw_details": character["nsfw_details"],
+        "outfit": outfit_text, "body_details": character["body_details"], "nsfw_details": character["nsfw_details"],
         "remove_background": bool(p.get("remove_background", True)), "pose_megapixels": float(p.get("pose_megapixels", 0.75)), "prompt_list": p.get("prompt_list") or "A-Poses (6)",
     }
     graph = {
@@ -137,14 +143,16 @@ async def run_sheet_job(job_id):
         character = conn.execute("SELECT * FROM character WHERE id = ?", (job["character_id"],)).fetchone()
         outfit = conn.execute("SELECT * FROM outfit WHERE id = ?", (job["outfit_id"],)).fetchone() if job["outfit_id"] else None
         p = job["params"]
+        ids = p.get("accessories") or []
+        accessories = conn.execute(f"SELECT * FROM accessory WHERE id IN ({', '.join('?' * len(ids))})", ids).fetchall() if ids else []
         refs = {slot: await upload(server, conn, aid) for slot, aid in p.get("refs", {}).items() if aid and slot in NODE_IMAGE_INPUTS}
         conn.execute("UPDATE job SET status = 'running' WHERE id = ?", (job_id,))
-    prompt_id, outputs = await queue_and_wait(server, sheet_graph(server, character, outfit, p, refs))
+    prompt_id, outputs = await queue_and_wait(server, sheet_graph(server, character, outfit, p, refs, accessories))
     ui = outputs.get(NODE, {})
     result = {"views": {}, "assets": [], "described": (ui.get("muse_described") or [{}])[0]}
     style = p.get("style") or json.loads(character["state_json"] or "{}").get("style", "none")
     common = {"character_id": job["character_id"], "outfit_id": job["outfit_id"], "job_id": job_id, "style": style,
-              "loras": [{"lora": r["lora"], "strength": float(r["strength"])} for r in enabled_loras(p)]}
+              "loras": [{"lora": r["lora"], "strength": float(r["strength"])} for r in enabled_loras(p)], "accessories": [a["id"] for a in accessories]}
     parents = p.get("parents", {})
     with db.connect() as conn:
         for view, card in (ui.get("muse_views") or [{}])[0].items():

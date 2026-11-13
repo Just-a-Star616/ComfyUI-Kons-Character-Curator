@@ -20,6 +20,7 @@ _tasks = set()
 
 CHARACTER_FIELDS = {"name", "trigger", "aliases", "cover_id", "description", "body_details", "nsfw_details", "state_json", "franchise", "tags", "notes"}
 OUTFIT_FIELDS = {"character_id", "name", "text", "footwear", "tags"}
+ACCESSORY_FIELDS = {"character_id", "name", "category", "part", "text", "tags"}
 ASSET_FIELDS = {"rating", "favorite", "hidden", "tags", "outfit_id", "character_id", "view_id"}
 
 
@@ -59,6 +60,7 @@ def character(cid: int):
     with db.connect() as conn:
         c = one(conn, "SELECT * FROM character WHERE id = ?", cid)
         c["outfits"] = db.rows(conn.execute("SELECT * FROM outfit WHERE character_id = ? OR character_id IS NULL ORDER BY character_id IS NULL, name", (cid,)))
+        c["accessories"] = db.rows(conn.execute("SELECT * FROM accessory WHERE character_id = ? OR character_id IS NULL ORDER BY character_id IS NULL, category, name", (cid,)))
         return c
 
 
@@ -86,11 +88,85 @@ def merge_character(cid: int, data: dict):
     into = data["into"]
     with db.connect() as conn:
         src, dst = one(conn, "SELECT * FROM character WHERE id = ?", cid), one(conn, "SELECT * FROM character WHERE id = ?", into)
-        for table in ("asset", "outfit", "job", "dataset"):
+        for table in ("asset", "outfit", "accessory", "job", "dataset"):
             conn.execute(f"UPDATE OR IGNORE {table} SET character_id = ? WHERE character_id = ?", (into, cid))
         aliases = list(dict.fromkeys(dst["aliases"] + [src["name"]] + src["aliases"] + ([src["trigger"]] if src["trigger"] else [])))
         db.write(conn, "character", {"aliases": aliases}, into)
         conn.execute("DELETE FROM character WHERE id = ?", (cid,))
+
+
+# Wardrobe: outfits and accessories across characters. Shared items have no character.
+
+WARDROBE = {"outfit": ("outfit", OUTFIT_FIELDS, "a.outfit_id = w.id"),
+            "accessory": ("accessory", ACCESSORY_FIELDS, "EXISTS (SELECT 1 FROM json_each(a.accessories) WHERE value = w.id)")}
+
+
+def wardrobe_list(kind, owner, q):
+    """owner: '' for all, 'shared', or a character id. Each item gets its owner's name, image count and latest image."""
+    table, _, used = WARDROBE[kind]
+    where, args = ["(w.name LIKE ? OR w.text LIKE ? OR w.tags LIKE ?)"], [f"%{q}%"] * 3
+    if owner == "shared":
+        where.append("w.character_id IS NULL")
+    elif owner:
+        where.append("w.character_id = ?")
+        args.append(int(owner))
+    with db.connect() as conn:
+        return db.rows(conn.execute(f"""
+            SELECT w.*, c.name AS character_name,
+              (SELECT COUNT(*) FROM asset a WHERE {used} AND a.hidden = 0) AS image_count,
+              (SELECT a.id FROM asset a WHERE {used} AND a.hidden = 0 AND (a.rating IS NULL OR a.rating = 'pass') ORDER BY a.rating = 'pass' DESC, a.id DESC LIMIT 1) AS cover
+            FROM {table} w LEFT JOIN character c ON c.id = w.character_id
+            WHERE {' AND '.join(where)} ORDER BY w.character_id IS NOT NULL, c.name, w.name""", args))
+
+
+def wardrobe_copy(kind, wid, character_id):
+    """Copy an item to a character (or to shared with None), renaming on a name clash."""
+    table, fields, _ = WARDROBE[kind]
+    with db.connect() as conn:
+        item = one(conn, f"SELECT * FROM {table} WHERE id = ?", wid)
+        names = {r[0] for r in conn.execute(f"SELECT name FROM {table} WHERE character_id IS ?", (character_id,))}
+        name = item["name"]
+        while name in names:
+            name += " (copy)"
+        return {"id": db.write(conn, table, {**pick(item, fields), "character_id": character_id, "name": name})}
+
+
+@app.get("/api/outfits")
+def outfits(owner: str = "", q: str = ""):
+    return wardrobe_list("outfit", owner, q)
+
+
+@app.post("/api/outfits/{oid}/copy")
+def copy_outfit(oid: int, data: dict):
+    return wardrobe_copy("outfit", oid, data.get("character_id"))
+
+
+@app.get("/api/accessories")
+def accessories(owner: str = "", q: str = ""):
+    return wardrobe_list("accessory", owner, q)
+
+
+@app.post("/api/accessories")
+def create_accessory(data: dict):
+    with db.connect() as conn:
+        return {"id": db.write(conn, "accessory", pick(data, ACCESSORY_FIELDS))}
+
+
+@app.put("/api/accessories/{aid}")
+def update_accessory(aid: int, data: dict):
+    with db.connect() as conn:
+        db.write(conn, "accessory", pick(data, ACCESSORY_FIELDS), aid)
+
+
+@app.delete("/api/accessories/{aid}")
+def delete_accessory(aid: int):
+    with db.connect() as conn:
+        conn.execute("DELETE FROM accessory WHERE id = ?", (aid,))
+
+
+@app.post("/api/accessories/{aid}/copy")
+def copy_accessory(aid: int, data: dict):
+    return wardrobe_copy("accessory", aid, data.get("character_id"))
 
 
 @app.post("/api/outfits")
@@ -115,7 +191,7 @@ def delete_outfit(oid: int):
 
 @app.get("/api/assets")
 def assets(character_id: str = "", outfit_id: int | None = None, kind: str = "", rating: str = "", view_id: str = "",
-           q: str = "", folder: str = "", style: str = "", lora: str = "", hidden: bool = False, limit: int = 300, offset: int = 0):
+           q: str = "", folder: str = "", style: str = "", lora: str = "", accessory: int | None = None, hidden: bool = False, limit: int = 300, offset: int = 0):
     """character_id: an id, or 'none' for unassigned images. folder: substring of any on-disk location."""
     where, args = ["a.hidden = ?"], [int(hidden)]
     if character_id == "none":
@@ -138,6 +214,9 @@ def assets(character_id: str = "", outfit_id: int | None = None, kind: str = "",
     if style:
         where.append("a.style = ?")
         args.append(style)
+    if accessory is not None:
+        where.append("EXISTS (SELECT 1 FROM json_each(a.accessories) WHERE value = ?)")
+        args.append(accessory)
     if lora:
         where.append("EXISTS (SELECT 1 FROM json_each(a.loras) WHERE json_extract(value, '$.lora') = ?)")
         args.append(lora)

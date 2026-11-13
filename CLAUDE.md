@@ -25,14 +25,14 @@ No test suite. After UI changes, open the affected page in a browser and check t
 - `server/library.py`: indexing in place (pixel SHA1 dedupe, thumbnails, 256-bit dHash), character matching, trash via `gio trash` (Linux-only; deleting fails on Windows), dataset export.
 - `server/comfy.py`: builds the node graph (`sheet_graph`), queues jobs, files results. Node id is fixed to `muse` so the node's per-view cache works. Job kinds: `sheet` (default), `caption` (LC Vision Caption), `restyle` (node `image_edit` mode); `run_job()` records failures on the job row.
 - `server/config.py`: reads `config.json` once at import. Its `servers` are only inserted on first start (`INSERT OR IGNORE`); after that servers are edited on the Servers page (`server` table, per-server models in `server.models`).
-- `web/src/`: no router or state library; `App.jsx` switches pages from a `page` state and also holds the Library, Assets and Servers pages. `Character.jsx` (gallery + Generate panel), `Loras.jsx` (LoRA rows, picker, info dialog), `Datasets.jsx`, `Duplicates.jsx`, `Review.jsx`, `ui.jsx` (grid, side drawer, `useLoad`). `main.jsx` loads `/api/config` into `CONFIG` before rendering.
+- `web/src/`: no router or state library; `App.jsx` switches pages from a `page` state and also holds the Library, Assets and Servers pages. `Character.jsx` (gallery + Generate panel), `Loras.jsx` (LoRA rows, picker, info dialog), `Wardrobe.jsx` (shared outfits and accessories), `Datasets.jsx`, `Duplicates.jsx`, `Review.jsx`, `ui.jsx` (grid, side drawer, `useLoad`). `main.jsx` loads `/api/config` into `CONFIG` before rendering.
 
 ## Data model
 
 - Asset identity is the SHA1 of RGBA pixels, not file bytes, so re-saved or copied images collapse into one `asset`; every on-disk copy is a row in `asset_file`.
 - `asset.path` is relative to `data/` for stored files (`data/assets/<sha1[:2]>/<sha1>.png`) and absolute for images indexed in place: always resolve it with `library.file_path()`.
 - `asset.kind`: `source|import|view|sheet|template|list_image|edit` (`multiview|mesh|rig` reserved for the 3D stage). Edits are child assets via `parent_id`.
-- Captions are versioned: one `caption` row per asset has `is_current = 1`, and `db.set_caption()` does the swap. `dataset_item.caption` overrides per dataset. Export writes `img_###.png` + `img_###.txt` with the trigger word first.
+- Captions are versioned: one `caption` row per asset has `is_current = 1`, and `db.set_caption()` does the swap. `dataset_item.caption` overrides per dataset. Export writes `img_###.png` + `img_###.txt` with the trigger word first (AI-Toolkit's `[trigger]` placeholder when the dataset has none).
 - `comfy.DEFAULT_STATE` and `STYLES` / `VIEWS` / `VIEW_PRESETS` in `web/src/api.js` are copies of the Muse node's contracts; keep them in sync with the node.
 
 ## Rules
@@ -41,5 +41,6 @@ No test suite. After UI changes, open the affected page in a browser and check t
 - Commit with the GitHub noreply email (set in this repo's git config), not a personal address.
 - Deleting images moves them to the Trash; never hard-delete user files.
 - LoRA data comes from the ComfyUI server: names from `LoraLoader`, metadata and Civitai info from rgthree-comfy routes, base model and previews from ComfyUI-Lora-Manager. Civitai lookups run on a server marked "can reach Civitai"; the app itself makes no internet requests.
-- Generated assets record `style` and `loras` so the gallery can filter them; keep that when adding generation paths.
+- Generated assets record `style`, `loras` and `accessories` so the gallery and Wardrobe can filter them; keep that when adding generation paths.
 - LC Vision loaders end with `keep_model_loaded: False`: llama.cpp VRAM is outside ComfyUI's model management and must be freed before the next generation.
+- Outfits and accessories with `character_id` NULL are shared. Accessories go into the designer `part_prompts` (see `sheet_graph`), not the outfit text, except in prompt lists.

@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {api, img, STYLES, thumb, waitJob, VIEWS, VIEW_PRESETS} from './api.js';
+import {api, img, PARTS, STYLES, thumb, waitJob, VIEWS, VIEW_PRESETS} from './api.js';
 import {AssetDrawer, AssetGrid, useLoad} from './ui.jsx';
 import {LoraRows} from './Loras.jsx';
 
@@ -132,8 +132,12 @@ function Outfits({character, active, setActive, reload}) {
         </select>
         <button onClick={() => add()}>New</button>
         {o && <button onClick={() => add(o)} title="Copy this outfit and change one thing">Variant</button>}
-        {o && <button onClick={async () => { await api.del(`/api/outfits/${o.id}`); reload(); }}>Delete</button>}
+        {o?.character_id && <button onClick={async () => { await api.put(`/api/outfits/${o.id}`, {character_id: null}); reload(); }} title="Offer this outfit to every character (Wardrobe)">Share</button>}
+        {o && !o.character_id && <button onClick={async () => { const r = await api.post(`/api/outfits/${o.id}/copy`, {character_id: character.id}); await reload(); setActive(r.id); }}
+          title="Make a copy that belongs to this character, to change it without affecting others">Copy to {character.name}</button>}
+        {o?.character_id && <button onClick={async () => { await api.del(`/api/outfits/${o.id}`); reload(); }}>Delete</button>}
       </div>
+      {o && !o.character_id && <p className="muted small">Shared outfit: saving changes it for every character. Manage shared outfits in the Wardrobe.</p>}
       {o && <>
         <label>name<input value={o.name} onChange={e => setO({...o, name: e.target.value})} /></label>
         <label>outfit<textarea rows={3} value={o.text} onChange={e => setO({...o, text: e.target.value})} /></label>
@@ -151,7 +155,7 @@ function Generate({character, outfitId, assets, onDone, applyDescribed, createOu
   const [serverId, setServerId] = useState(null);
   const [lists, setLists] = useState([]);
   const [loraList, setLoraList] = useState([]);
-  const [p, setP] = useState({mode: 'per_view', views: VIEW_PRESETS['Muse template · 5'], style: JSON.parse(character.state_json || '{}').style || 'none', seed: 0, megapixels: 1.0, pose_megapixels: 0.75, remove_background: true, prompt_list: '', refs: {}, loras: []});
+  const [p, setP] = useState({mode: 'per_view', views: VIEW_PRESETS['Muse template · 5'], style: JSON.parse(character.state_json || '{}').style || 'none', seed: 0, megapixels: 1.0, pose_megapixels: 0.75, remove_background: true, prompt_list: '', refs: {}, loras: [], accessories: []});
   const [control, setControl] = useState(EMPTY_CONTROL);
   const [cards, setCards] = useState({});
   const [busy, setBusy] = useState('');
@@ -180,7 +184,7 @@ function Generate({character, outfitId, assets, onDone, applyDescribed, createOu
       if (!last) return;
       setControl({...EMPTY_CONTROL, ...last.params.control, action: undefined});
       setCards(last.result.views || {});
-      setP(x => ({...x, views: last.params.views || x.views, refs: last.params.refs || {}, seed: last.params.seed ?? 0, style: last.params.style || x.style, loras: last.params.loras || []}));
+      setP(x => ({...x, views: last.params.views || x.views, refs: last.params.refs || {}, seed: last.params.seed ?? 0, style: last.params.style || x.style, loras: last.params.loras || [], accessories: last.params.accessories || []}));
     });
   }, [character.id]);
   const set = (k, v) => setP(x => ({...x, [k]: v}));
@@ -249,6 +253,15 @@ function Generate({character, outfitId, assets, onDone, applyDescribed, createOu
       </div>
       <div className="refslots">{Object.keys(SLOTS).map(slot)}</div>
       <LoraRows serverId={serverId} available={loraList} rows={p.loras || []} onChange={rows => set('loras', rows)} />
+      <div className="row">
+        <span className="muted small" title="Each joins the designer part prompt for where it is worn, so it only shows on views where that part is visible">Accessories:</span>
+        {character.accessories.map(a => {
+          const on = p.accessories?.includes(a.id);
+          return <button key={a.id} className={on ? 'on' : ''} title={`${PARTS[a.part]}: ${a.text}`}
+            onClick={() => set('accessories', on ? p.accessories.filter(x => x !== a.id) : [...(p.accessories || []), a.id])}>{a.name}{a.character_id ? '' : ' (shared)'}</button>;
+        })}
+        {!character.accessories.length && <span className="muted small">none yet: add weapons, jewelry and props in the Wardrobe</span>}
+      </div>
       {p.refs.character_image && p.refs.detail_image && p.refs.pose_image && p.megapixels >= 1 && (p.pose_megapixels ?? 0.75) >= 1 &&
         <p className="err small">Three references with a {p.megapixels} MP output can run out of memory on a 24 GB GPU with Klein 9B. Lower pose MP (e.g. 0.75) or the output megapixels.</p>}
       <div className="row">

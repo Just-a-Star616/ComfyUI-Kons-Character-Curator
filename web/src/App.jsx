@@ -5,6 +5,7 @@ import Character from './Character.jsx';
 import Review from './Review.jsx';
 import Datasets from './Datasets.jsx';
 import Duplicates from './Duplicates.jsx';
+import Wardrobe from './Wardrobe.jsx';
 
 export default function App() {
   const [page, setPage] = useState({name: 'library'});
@@ -13,7 +14,7 @@ export default function App() {
     <>
       <nav>
         <b>Kons Character Curator</b>
-        {['library', 'assets', 'review', 'duplicates', 'datasets', 'servers'].map(n => <button key={n} className={page.name === n ? 'on' : ''} onClick={() => go(n)}>{n}</button>)}
+        {['library', 'wardrobe', 'assets', 'review', 'duplicates', 'datasets', 'servers'].map(n => <button key={n} className={page.name === n ? 'on' : ''} onClick={() => go(n)}>{n}</button>)}
       </nav>
       <main>
         {page.name === 'library' && <Library open={id => go('character', {id})} />}
@@ -23,6 +24,7 @@ export default function App() {
         {page.name === 'datasets' && <Datasets />}
         {page.name === 'duplicates' && <Duplicates />}
         {page.name === 'servers' && <Servers />}
+        {page.name === 'wardrobe' && <Wardrobe />}
       </main>
     </>
   );

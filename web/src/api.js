@@ -33,6 +33,11 @@ export async function waitJob(id, onTick) {
 
 // From the node's contracts/prompt_contract.v1.json.
 // The node's designer styles (contracts/prompt_contract.v1.json).
+// Designer part prompts an accessory can join (contracts part_visibility): it shows only where that part is visible.
+export const PARTS = {hands: 'Held / hands (full-body views, hand close-ups)', head_hair: 'Head / hair (all views)', face: 'Face (front and side views)',
+  upper_clothing: 'Upper body / neck (all views)', back_clothing: 'On the back (back views)', lower_body: 'Hips / legs (full-body views)', footwear: 'Feet (full-body views)'};
+export const CATEGORIES = ['weapon', 'jewelry', 'headwear', 'eyewear', 'bag', 'prop', 'other'];
+
 export const STYLES = {none: 'None', anime: 'Anime', semi_realistic_anime: 'Semi-realistic anime', photo: 'Photo', realistic_painting: 'Realistic painting',
   oil_painting: 'Oil painting', watercolor: 'Watercolor', gouache: 'Gouache', colored_pencil: 'Colored pencil', '3d': '3D render'};
 

@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS job (
   result TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 -- Image pairs a person confirmed are not duplicates (a < b).
 CREATE TABLE IF NOT EXISTS dup_ignore (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY (a, b));
+-- character_id NULL = shared (offered to every character), as for outfits. part: the designer part prompt it joins,
+-- so it only reaches views where that part is visible (hands: full-body views and hand close-ups, not portraits).
+CREATE TABLE IF NOT EXISTS accessory (
+  id INTEGER PRIMARY KEY, character_id INTEGER REFERENCES character(id) ON DELETE CASCADE, name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'other', part TEXT NOT NULL DEFAULT 'hands', text TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS dataset (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, character_id INTEGER REFERENCES character(id) ON DELETE SET NULL,
   trigger TEXT NOT NULL DEFAULT '', created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -56,7 +61,7 @@ DEFAULT_MODELS = {"unet": "flux-2-klein-9b-kv-fp8.safetensors", "clip": "qwen_3_
 
 
 # Columns added after the first release; init() adds them to existing databases.
-ADDED_COLUMNS = (("character", "cover_id", "INTEGER"), ("asset", "phash", "BLOB"), ("asset", "style", "TEXT"), ("asset", "loras", "TEXT"), ("server", "civitai", "INTEGER NOT NULL DEFAULT 0"))
+ADDED_COLUMNS = (("character", "cover_id", "INTEGER"), ("asset", "phash", "BLOB"), ("asset", "style", "TEXT"), ("asset", "loras", "TEXT"), ("server", "civitai", "INTEGER NOT NULL DEFAULT 0"), ("asset", "accessories", "TEXT"))
 
 
 def connect():
@@ -77,7 +82,7 @@ def init():
                          [(s["name"], s["url"], json.dumps(DEFAULT_MODELS)) for s in CONFIG["servers"]])
 
 
-JSON_COLUMNS = ("tags", "aliases", "models", "params", "result", "loras")
+JSON_COLUMNS = ("tags", "aliases", "models", "params", "result", "loras", "accessories")
 
 
 def row(r):
