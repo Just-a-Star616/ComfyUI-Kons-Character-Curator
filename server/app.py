@@ -273,6 +273,10 @@ def update_caption(aid: int, data: dict):
 async def upload_assets(files: list[UploadFile] = File(...), character_id: int | None = Form(None), outfit_id: int | None = Form(None), kind: str = Form("source")):
     with db.connect() as conn:
         ids = [library.store(conn, await f.read(), kind=kind, character_id=character_id, outfit_id=outfit_id) for f in files]
+        # store() returns an already-indexed copy as-is; attach it to this character, and an indexed import becomes this kind
+        for aid in ids:
+            conn.execute("UPDATE asset SET character_id = COALESCE(?, character_id), outfit_id = COALESCE(?, outfit_id),"
+                         " kind = CASE WHEN kind = 'import' THEN ? ELSE kind END, hidden = 0 WHERE id = ?", (character_id, outfit_id, kind, aid))
     return {"ids": ids}
 
 

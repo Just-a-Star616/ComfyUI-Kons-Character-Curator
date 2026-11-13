@@ -88,11 +88,18 @@ def sheet_graph(server, character, outfit, p, refs):
     return graph
 
 
+# Replaces the node's default system prompt, which asks for the subject's appearance in rich detail.
+CAPTION_SYSTEM = ("You write captions for training a character LoRA. The character's identity is learned from a trigger word, "
+                  "so captions must never describe what stays the same in every image of them: face, eyes, hair (color, length, style), "
+                  "ears, skin, species, age, body type. Describe only what changes between images. Output one plain paragraph of "
+                  "comma-separated phrases, no headings, labels, lists or notes, and nothing after the caption. No reasoning.")
+
+
 def caption_graph(server, image_name, instruction, keep_loaded):
     return {
         "img": {"class_type": "LoadImage", "inputs": {"image": image_name}},
         "vision": {"class_type": "LCVisionLoader", "inputs": {**server["models"]["vision"], "keep_model_loaded": keep_loaded}},
-        "caption": {"class_type": "LCVisionCaption", "inputs": {"vision_model": ["vision", 0], "prompt": instruction, "reference_image_1": ["img", 0]}},
+        "caption": {"class_type": "LCVisionCaption", "inputs": {"vision_model": ["vision", 0], "prompt": instruction, "system_prompt": CAPTION_SYSTEM, "reference_image_1": ["img", 0]}},
         "show": {"class_type": "PreviewAny", "inputs": {"source": ["caption", 0]}},
     }
 
@@ -105,7 +112,10 @@ async def queue_and_wait(server, graph):
         prompt_id = r.json()["prompt_id"]
         while True:
             await asyncio.sleep(2)
-            history = (await client.get(f"/history/{prompt_id}")).json().get(prompt_id)
+            try:
+                history = (await client.get(f"/history/{prompt_id}")).json().get(prompt_id)
+            except httpx.TransportError:  # A busy server (model load/unload, NAS rescan) can miss one poll; keep waiting.
+                continue
             if history:  # ComfyUI adds a prompt to history only once it has finished or failed.
                 break
         status = history["status"]
@@ -173,9 +183,10 @@ async def run_caption_job(job_id):
             name = await upload(server, conn, aid)
         # Stay loaded between images; the last one releases the vision model's VRAM.
         _, outputs = await queue_and_wait(server, caption_graph(server, name, p["instruction"], n < len(p["asset_ids"]) - 1))
-        text = outputs["show"]["text"][0].strip()
+        text = library.clean_caption(outputs["show"]["text"][0])
         with db.connect() as conn:
             db.set_caption(conn, aid, "lc_vision", text)
+            db.write(conn, "job", {"result": {"done": n + 1, "total": len(p["asset_ids"])}}, job_id)
     with db.connect() as conn:
         db.write(conn, "job", {"status": "done"}, job_id)
 
@@ -218,5 +229,5 @@ async def run_job(job_id, kind):
         await {"caption": run_caption_job, "restyle": run_restyle_job}.get(kind, run_sheet_job)(job_id)
     except Exception as error:
         with db.connect() as conn:
-            db.write(conn, "job", {"status": "error", "error": str(error)}, job_id)
+            db.write(conn, "job", {"status": "error", "error": str(error) or type(error).__name__}, job_id)
         raise

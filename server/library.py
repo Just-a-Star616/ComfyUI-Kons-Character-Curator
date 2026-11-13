@@ -289,15 +289,21 @@ def current_caption(conn, asset_id):
     return r["text"] if r else ""
 
 
+def clean_caption(text):
+    """Drop what Qwen3 echoes back: the /no_think switch and 'Trigger word: ...' lines."""
+    lines = [l for l in text.splitlines() if not re.fullmatch(r"\s*((\w+ )?trigger( word)?\s*:.*|/?no_think)\s*", l, re.I)]
+    return re.sub(r"\s*/?no_think\s*$", "", "\n".join(lines).strip())
+
+
 def export_dataset(conn, dataset_id, target):
-    """kohya / ai-toolkit layout: img_###.png + img_###.txt, trigger word first."""
+    """kohya / ai-toolkit layout: img_###.png + img_###.txt, trigger word first ([trigger], AI-Toolkit's placeholder, when unset)."""
     ds = conn.execute("SELECT * FROM dataset WHERE id = ?", (dataset_id,)).fetchone()
     out = Path(target).expanduser() / ds["name"]
     out.mkdir(parents=True, exist_ok=True)
     items = conn.execute("SELECT a.id, a.path, i.caption FROM dataset_item i JOIN asset a ON a.id = i.asset_id WHERE i.dataset_id = ? ORDER BY a.id", (dataset_id,)).fetchall()
     for n, item in enumerate(items, 1):
         caption = (item["caption"] or current_caption(conn, item["id"])).strip()
-        trigger = ds["trigger"].strip()
+        trigger = ds["trigger"].strip() or "[trigger]"
         if trigger and not caption.startswith(trigger):
             caption = f"{trigger}, {caption}" if caption else trigger
         shutil.copyfile(file_path(item), out / f"img_{n:03d}.png")

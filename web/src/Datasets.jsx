@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react';
 import {api, CONFIG, STYLES, thumb, waitJob} from './api.js';
 import {AssetGrid, useLoad} from './ui.jsx';
 
-const CAPTION_PROMPT = 'Write a short training caption for this image: pose, framing, expression, clothing and background. Do not describe the identity (face, hair, eyes), it is the trigger word.';
+const CAPTION_PROMPT = 'Caption this image in under 60 words: framing and camera angle, pose, expression, clothing and accessories, background, lighting. Never mention face, eyes, hair, ears, skin, species or body type. Do not name the subject; call them "the character".';
 
 export default function Datasets() {
   const [list, reload] = useLoad(() => api.get('/api/datasets'), []);
@@ -60,9 +60,10 @@ function Dataset({id, chars, onChange}) {
     setMsg('Captioning…');
     try {
       const {id: jid} = await api.post('/api/jobs', {kind: 'caption', server_id: serverId, params: {asset_ids: targets(), instruction}});
-      await waitJob(jid);
-      setMsg('Captioned'); reload();
+      await waitJob(jid, j => j.result?.total && setMsg(`Captioning… ${j.result.done}/${j.result.total}`));
+      setMsg('Captioned');
     } catch (e) { setMsg(`Error: ${e.message}`); }
+    reload();  // Captions are saved per image, so show the finished ones even if the job failed.
   };
   const targets = () => picked.size ? [...picked] : d.items.map(i => i.id);
   const runRestyle = async () => {
@@ -86,7 +87,7 @@ function Dataset({id, chars, onChange}) {
     <>
       <section className="card form">
         <label>name<input value={meta.name} onChange={e => setMeta({...meta, name: e.target.value})} /></label>
-        <label>trigger word<input value={meta.trigger} onChange={e => setMeta({...meta, trigger: e.target.value})} /></label>
+        <label>trigger word<input placeholder="[trigger]" value={meta.trigger} onChange={e => setMeta({...meta, trigger: e.target.value})} /></label>
         <label>character<select value={meta.character_id} onChange={e => setMeta({...meta, character_id: e.target.value ? +e.target.value : ''})}>
           <option value="">(any)</option>{chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         <button onClick={saveMeta}>Save</button>
